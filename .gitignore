@@ -1,0 +1,12 @@
+node_modules/
+.pm2/
+*.log
+.env
+admin.json
+*.pem
+
+# runtime data: stays on the server, never in the repo
+data/*
+!data/.gitkeep
+public/photos/*
+!public/photos/.gitkeep

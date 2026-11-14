@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Admin · Flowers</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+ body{padding-bottom:40px}
+ .login{max-width:360px;margin:12vh auto;background:#fff;border:1px solid var(--line);border-radius:22px;padding:32px}
+ .login h1{font-size:40px;margin-bottom:16px}
+ input,select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;font-family:inherit;font-size:15px;background:#fff}
+ .bar{display:flex;justify-content:space-between;align-items:center;padding:18px 0}
+ .layout{display:grid;grid-template-columns:380px 1fr;gap:24px;align-items:start}
+ .panel{background:#fff;border:1px solid var(--line);border-radius:20px;padding:22px}
+ .panel h2{font-size:28px;margin-bottom:14px}
+ label.l{display:block;font-size:12px;color:var(--muted);margin:6px 0 4px}
+ .checks{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+ .checks label{display:inline-flex;gap:5px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:13px;cursor:pointer}
+ .checks input{width:auto;margin:0}
+ .row2{display:flex;gap:8px}.row2 .btn{flex:1;justify-content:center}
+ table{width:100%;border-collapse:collapse;font-size:14px}
+ td,th{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+ td img{width:48px;height:60px;object-fit:cover;border-radius:8px;display:block}
+ .mini{padding:6px 12px;font-size:12px}
+ .err{color:#b3261e;font-size:13px;margin-top:6px}
+ .ok{color:var(--green);font-size:13px;margin-top:6px}
+ .preview{width:110px;height:140px;object-fit:cover;border-radius:12px;margin-bottom:8px;display:none}
+ .tabs{display:flex;gap:8px;margin-bottom:14px}
+ @media(max-width:900px){.layout{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+<script>
+let FLOWERS = {}, TAGS = {}, FL_LIST = [], CAT_LIST = [];
+const root = document.getElementById('root');
+const fmt = n => Number(n).toLocaleString('en-US').replace(/,/g,' ');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api = async (url, method='GET', body) => {
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined});
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) { if (r.status===401 && url!=='/api/admin/login') { showLogin(); } throw j; }
+  return j;
+};
+
+function showLogin(){
+  root.innerHTML = `<form class="login" id="lf"><h1 class="serif">Admin</h1>
+  <input name="username" placeholder="Login" autocomplete="username" required>
+  <input name="password" type="password" placeholder="Parol" autocomplete="current-password" required>
+  <button class="btn dark" style="width:100%;justify-content:center">Kirish</button><div class="err" id="le"></div></form>`;
+  document.getElementById('lf').onsubmit = async e => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    try { await api('/api/admin/login','POST',f); showPanel(); }
+    catch(x){ document.getElementById('le').textContent = x.error==='too_many_attempts' ? "Juda ko'p urinish. 10 daqiqadan so'ng urining." : "Login yoki parol noto'g'ri"; }
+  };
+}
+
+let items = [], editing = null, imageData = null, removeImg = false, tab = 'products', me = '';
+
+async function showPanel(){
+  me = (await fetch('/api/admin/me').then(r=>r.json())).user || '';
+  root.innerHTML = `<div class="bar"><a class="logo" href="/"><b>F</b>lowers · admin</a>
+   <div class="row2" style="flex:none"><a class="btn light" href="/" target="_blank">Saytni ko'rish</a><button class="btn" id="out">Chiqish</button></div></div>
+   <div class="layout"><div class="panel" id="formBox"></div><div class="panel"><div class="tabs"><button class="chip" data-t="products">Buketlar</button><button class="chip" data-t="orders">Buyurtmalar</button><button class="chip" data-t="flowers">Gullar</button><button class="chip" data-t="cats">Toifalar</button><button class="chip" data-t="admins">Adminlar</button></div><div id="content"></div></div></div>`;
+  document.getElementById('out').onclick = async () => { await api('/api/admin/logout','POST'); showLogin(); };
+  root.querySelector('.tabs').onclick = e => { if(e.target.dataset.t){ tab=e.target.dataset.t; render(); } };
+  await load();
+}
+async function load(){
+  [items, FL_LIST, CAT_LIST] = await Promise.all(['products','flowers','categories'].map(n=>fetch('/api/'+n).then(r=>r.json())));
+  FLOWERS = Object.fromEntries(FL_LIST.map(f=>[f.id,f.uz])); TAGS = Object.fromEntries(CAT_LIST.map(c=>[c.id,c.uz]));
+  render();
+}
+
+function listManager(kind, list, title){
+  const c = document.getElementById('content');
+  c.innerHTML = `<p class="small" style="margin-bottom:12px">${list.length} ta. Buketni qo'shayotganda shu ro'yxatdan tanlanadi.</p>
+  <form id="lm" style="margin-bottom:16px"><div class="row2"><input name="ru" placeholder="Ruscha"><input name="uz" placeholder="O'zbekcha"><input name="en" placeholder="English"></div>
+  <button class="btn dark">${title} qo'shish</button><div id="lmm"></div></form>
+  <table><tr><th>RU</th><th>UZ</th><th>EN</th><th></th></tr>${list.map(x=>`<tr><td>${esc(x.ru)}</td><td>${esc(x.uz)}</td><td>${esc(x.en)}</td><td><button class="btn mini" data-rm="${esc(x.id)}">O'chirish</button></td></tr>`).join('')}</table>`;
+  document.getElementById('lm').onsubmit = async e => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    try { await api('/api/admin/'+kind,'POST',f); await load(); }
+    catch(x){ document.getElementById('lmm').innerHTML = '<div class="err">Kamida bitta tilda nom yozing</div>'; }
+  };
+  c.onclick = async e => { const id=e.target.dataset.rm; if(id && confirm("O'chirilsinmi? Buketlardan ham olib tashlanadi.")){ await api('/api/admin/'+kind+'/'+encodeURIComponent(id),'DELETE'); await load(); } };
+}
+
+function render(){
+  document.querySelectorAll('.tabs .chip').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+  renderForm();
+  if(tab==='products'){
+    document.getElementById('content').innerHTML = items.length ? `<table><tr><th></th><th>Nomi</th><th>Narx</th><th></th></tr>${items.map(p=>`<tr>
+     <td>${p.image?`<img src="${esc(p.image)}">`:''}</td><td><b>${esc(p.name)}</b><br><small style="color:var(--muted)">${p.flowers.map(f=>FLOWERS[f]||esc(f)).join(', ')}</small></td>
+     <td>${fmt(p.price)}</td><td style="white-space:nowrap"><button class="btn mini" data-edit="${p.id}">Tahrirlash</button> <button class="btn mini" data-del="${p.id}">O'chirish</button></td></tr>`).join('')}</table>` : `<p style="color:var(--muted)">Hali buket yo'q. Chapdagi formadan birinchi buketni qo'shing.</p>`;
+    document.getElementById('content').onclick = async e => {
+      if(e.target.dataset.edit){ editing = items.find(p=>p.id==e.target.dataset.edit); imageData=null; removeImg=false; renderForm(); window.scrollTo({top:0,behavior:'smooth'}); }
+      if(e.target.dataset.del){ const p = items.find(x=>x.id==e.target.dataset.del); if(confirm(`"${p.name}" o'chirilsinmi?`)){ await api('/api/admin/products/'+p.id,'DELETE'); if(editing&&editing.id===p.id) editing=null; await load(); } }
+    };
+  } else if(tab==='flowers' || tab==='cats'){
+    listManager(tab==='flowers' ? 'flowers' : 'categories', tab==='flowers' ? FL_LIST : CAT_LIST, tab==='flowers' ? 'Gul turini' : 'Toifani');
+  } else if(tab==='admins'){
+    api('/api/admin/admins').then(list=>{
+      const c = document.getElementById('content');
+      c.innerHTML = `<table><tr><th>Login</th><th></th></tr>${list.map(u=>`<tr><td><b>${esc(u)}</b>${u===me?' <small style="color:var(--muted)">(siz)</small>':''}</td><td>${u===me?'':`<button class="btn mini" data-rmadmin="${esc(u)}">O'chirish</button>`}</td></tr>`).join('')}</table>
+      <h2 class="serif" style="margin-top:22px;font-size:24px">Yangi admin qo'shish</h2>
+      <form id="af"><input name="username" placeholder="Login (harf, raqam)" required autocomplete="off"><input name="password" type="password" placeholder="Parol (kamida 4 belgi)" required autocomplete="new-password"><button class="btn dark">Admin yaratish</button><div id="am"></div></form>`;
+      c.onclick = async e => { const u=e.target.dataset.rmadmin; if(u && confirm(`"${u}" admini o'chirilsinmi?`)){ await api('/api/admin/admins/'+encodeURIComponent(u),'DELETE'); render(); } };
+      document.getElementById('af').onsubmit = async e => {
+        e.preventDefault();
+        const f = Object.fromEntries(new FormData(e.target));
+        try { await api('/api/admin/admins','POST',f); render(); setTimeout(()=>{const m=document.getElementById('am'); if(m) m.innerHTML='<div class="ok">Admin yaratildi</div>';},300); }
+        catch(x){ const t={bad_username:"Login 2–30 ta harf/raqam bo'lsin",password_too_short:'Parol juda qisqa',exists:'Bunday login bor'}; document.getElementById('am').innerHTML=`<div class="err">${t[x.error]||'Xatolik'}</div>`; }
+      };
+    }).catch(()=>{});
+  } else {
+    api('/api/admin/orders').then(list=>{
+      document.getElementById('content').innerHTML = list.length ? `<table><tr><th>Sana</th><th>Buket</th><th>Mijoz</th></tr>${list.map(o=>`<tr><td>${new Date(o.createdAt).toLocaleString()}</td><td>${esc(o.product)}<br><small>${fmt(o.price)}</small></td><td>${esc(o.name)}<br>${esc(o.phone)}<br><small>${esc(o.address)}</small></td></tr>`).join('')}</table>` : `<p style="color:var(--muted)">Buyurtmalar yo'q.</p>`;
+    }).catch(()=>{});
+  }
+}
+
+function renderForm(){
+  const p = editing || {name:'',price:'',tags:[],flowers:[]};
+  const box = document.getElementById('formBox');
+  box.innerHTML = `<h2 class="serif">${editing?'Buketni tahrirlash':"Yangi buket"}</h2><form id="pf">
+   <label class="l">Nomi</label><input name="name" required value="${esc(p.name)}">
+   <label class="l">Narxi (so'm)</label><input name="price" type="number" min="1" required value="${esc(p.price)}">
+   <label class="l">Rasm</label><img class="preview" id="pv" ${p.image&&!removeImg?`src="${esc(p.image)}" style="display:block"`:''}><input type="file" id="file" accept="image/png,image/jpeg,image/webp">
+   ${editing&&p.image?`<label class="l" style="cursor:pointer"><input type="checkbox" id="rmimg" style="width:auto;display:inline;margin:0 6px 0 0">Rasmni olib tashlash</label>`:''}
+   <label class="l">Gullar tarkibi</label><div class="checks">${Object.entries(FLOWERS).map(([k,v])=>`<label><input type="checkbox" name="fl" value="${k}" ${p.flowers.includes(k)?'checked':''}>${v}</label>`).join('')}</div>
+   <label class="l">Toifalar (katalog filtri)</label><div class="checks">${Object.entries(TAGS).map(([k,v])=>`<label><input type="checkbox" name="tg" value="${k}" ${p.tags.includes(k)?'checked':''}>${v}</label>`).join('')}</div>
+   <small style="color:var(--muted)">Narx darajasi narxdan avtomatik: 1 mlngacha / 1–2 mln / 2 mln+</small>
+   <div class="row2" style="margin-top:12px"><button class="btn dark" type="submit">${editing?'Saqlash':"Qo'shish"}</button>${editing?'<button class="btn" type="button" id="cancel">Bekor</button>':''}</div><div id="fm"></div></form>`;
+  document.getElementById('file').onchange = e => {
+    const f = e.target.files[0]; if(!f) return;
+    if(f.size>5*1024*1024){ document.getElementById('fm').innerHTML='<div class="err">Rasm 5 MB dan kichik bo\'lsin</div>'; e.target.value=''; return; }
+    const r = new FileReader(); r.onload = () => { imageData = r.result; const pv=document.getElementById('pv'); pv.src=r.result; pv.style.display='block'; }; r.readAsDataURL(f);
+  };
+  const rm = document.getElementById('rmimg'); if(rm) rm.onchange = e => { removeImg = e.target.checked; };
+  const c = document.getElementById('cancel'); if(c) c.onclick = () => { editing=null; imageData=null; removeImg=false; renderForm(); };
+  document.getElementById('pf').onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = { name: fd.get('name'), price: Number(fd.get('price')), flowers: fd.getAll('fl'), tags: fd.getAll('tg') };
+    if(imageData) body.image = imageData;
+    if(removeImg && !imageData) body.removeImage = true;
+    try {
+      if(editing) await api('/api/admin/products/'+editing.id,'PUT',body); else await api('/api/admin/products','POST',body);
+      const wasEdit = !!editing; editing=null; imageData=null; removeImg=false; await load();
+      document.getElementById('fm').innerHTML = `<div class="ok">${wasEdit?'Saqlandi':"Buket qo'shildi"}</div>`;
+    } catch(x){ document.getElementById('fm').innerHTML = `<div class="err">Xatolik: ${esc(x.error||'noma\'lum')}</div>`; }
+  };
+}
+
+fetch('/api/admin/me').then(r=>r.json()).then(j=> j.authed ? showPanel() : showLogin());
+</script>
+</body>
+</html>
