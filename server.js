@@ -135,8 +135,15 @@ function clean(body) {
   const name = String(body.name || '').trim().slice(0, 80);
   const price = Math.round(Number(body.price));
   if (!name || !(price > 0)) return null;
-  const arr = v => (Array.isArray(v) ? v.map(s => String(s).slice(0, 30)).slice(0, 20) : []);
-  return { name, price, tier: tierOf(price), tags: arr(body.tags), flowers: arr(body.flowers) };
+  const arr = v => (Array.isArray(v) ? v.map(s => String(s).slice(0, 30)).slice(0, 40) : []);
+  const flowers = arr(body.flowers);
+  // recipe: how many stems of each flower go into one bouquet (default 1)
+  const raw = body.recipe && typeof body.recipe === 'object' ? body.recipe : {};
+  const recipe = {};
+  flowers.forEach(id => { const q = Math.round(Number(raw[id])); recipe[id] = q > 0 && q <= 999 ? q : 1; });
+  // stock: how many ready bouquets are available
+  const stock = Math.max(0, Math.min(99999, Math.round(Number(body.stock)) || 0));
+  return { name, price, tier: tierOf(price), tags: arr(body.tags), flowers, recipe, stock };
 }
 
 app.post('/api/admin/products', requireAdmin, (req, res) => {
@@ -172,6 +179,7 @@ app.delete('/api/admin/products/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 app.get('/api/admin/orders', requireAdmin, (req, res) => res.json(readJson(ORDERS, []).reverse()));
+app.get('/api/admin/products', requireAdmin, (req, res) => res.json(products())); // full data incl. recipe
 
 // ---------- Flowers & categories (editable lists) ----------
 const seed = require('./seed');
@@ -182,7 +190,20 @@ if (!fs.existsSync(CATEGORIES)) writeJson(CATEGORIES, seed.CATEGORIES);
 
 function listApi(name, file, productField) {
   const read = () => readJson(file, []);
-  app.get(`/api/${name}`, (req, res) => res.json(read()));
+  // public list never exposes flower stock
+  app.get(`/api/${name}`, (req, res) => res.json(read().map(({ stock, ...x }) => x)));
+  app.get(`/api/admin/${name}`, requireAdmin, (req, res) => res.json(read()));
+  // set (or clear with null/"") the stock of one item
+  app.put(`/api/admin/${name}/:id`, requireAdmin, (req, res) => {
+    const list = read();
+    const it = list.find(x => x.id === req.params.id);
+    if (!it) return res.status(404).json({ error: 'not_found' });
+    const v = (req.body || {}).stock;
+    if (v === null || v === '') delete it.stock;
+    else { const n = Math.round(Number(v)); if (!(n >= 0 && n <= 9999999)) return res.status(400).json({ error: 'bad_stock' }); it.stock = n; }
+    writeJson(file, list);
+    res.json(it);
+  });
   app.post(`/api/admin/${name}`, requireAdmin, (req, res) => {
     const b = req.body || {};
     const t = k => String(b[k] || '').trim().slice(0, 60);
@@ -195,7 +216,8 @@ function listApi(name, file, productField) {
     let base = item.en.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'item';
     let id = base, n = 2;
     while (list.some(x => x.id === id)) id = `${base}_${n++}`;
-    list.push({ id, ...item });
+    const st = b.stock === undefined || b.stock === null || b.stock === '' ? NaN : Math.round(Number(b.stock));
+    list.push({ id, ...item, ...(st >= 0 ? { stock: st } : {}) });
     writeJson(file, list);
     res.json({ id, ...item });
   });
@@ -204,13 +226,85 @@ function listApi(name, file, productField) {
     if (!list.some(x => x.id === req.params.id)) return res.status(404).json({ error: 'not_found' });
     writeJson(file, list.filter(x => x.id !== req.params.id));
     // remove from products too
-    const ps = products().map(p => ({ ...p, [productField]: p[productField].filter(x => x !== req.params.id) }));
+    const ps = products().map(p => {
+      const q = { ...p, [productField]: p[productField].filter(x => x !== req.params.id) };
+      if (productField === 'flowers' && q.recipe) { q.recipe = { ...q.recipe }; delete q.recipe[req.params.id]; }
+      return q;
+    });
     writeJson(PRODUCTS, ps);
     res.json({ ok: true });
   });
 }
 listApi('flowers', FLOWERS, 'flowers');
 listApi('categories', CATEGORIES, 'tags');
+
+// ---------- Sales and statistics ----------
+const SALES = path.join(__dirname, 'data', 'sales.json');
+const sales = () => readJson(SALES, []);
+const recipeOf = p => p.recipe || Object.fromEntries((p.flowers || []).map(f => [f, 1]));
+
+// Record a sale: lowers bouquet stock and the stock of each tracked flower
+app.post('/api/admin/sales', requireAdmin, (req, res) => {
+  const qty = Math.round(Number((req.body || {}).qty) || 1);
+  if (!(qty >= 1 && qty <= 9999)) return res.status(400).json({ error: 'bad_qty' });
+  const ps = products();
+  const p = ps.find(x => x.id === Number((req.body || {}).productId));
+  if (!p) return res.status(404).json({ error: 'product_not_found' });
+  if (typeof p.stock === 'number' && qty > p.stock) return res.status(400).json({ error: 'not_enough_stock', have: p.stock });
+  const recipe = recipeOf(p);
+  if (typeof p.stock === 'number') p.stock -= qty;
+  const fl = readJson(FLOWERS, []);
+  fl.forEach(f => { if (recipe[f.id] && typeof f.stock === 'number') f.stock = Math.max(0, f.stock - recipe[f.id] * qty); });
+  const sale = { id: Date.now(), productId: p.id, name: p.name, qty, price: p.price, total: p.price * qty, recipe, by: req.admin, at: new Date().toISOString() };
+  const all = sales(); all.push(sale);
+  writeJson(PRODUCTS, ps); writeJson(FLOWERS, fl); writeJson(SALES, all);
+  res.json({ sale, stock: p.stock });
+});
+// Undo a sale (mistake): gives the stock back
+app.delete('/api/admin/sales/:id', requireAdmin, (req, res) => {
+  const all = sales();
+  const s = all.find(x => x.id === Number(req.params.id));
+  if (!s) return res.status(404).json({ error: 'not_found' });
+  const ps = products(); const p = ps.find(x => x.id === s.productId);
+  if (p && typeof p.stock === 'number') p.stock += s.qty;
+  const fl = readJson(FLOWERS, []);
+  fl.forEach(f => { if (s.recipe[f.id] && typeof f.stock === 'number') f.stock += s.recipe[f.id] * s.qty; });
+  writeJson(PRODUCTS, ps); writeJson(FLOWERS, fl); writeJson(SALES, all.filter(x => x.id !== s.id));
+  res.json({ ok: true });
+});
+app.get('/api/admin/sales', requireAdmin, (req, res) => res.json(sales().reverse().slice(0, 100)));
+
+app.get('/api/admin/stats', requireAdmin, (req, res) => {
+  const days = Number(req.query.days) || 0; // 0 = all time
+  const since = days ? Date.now() - days * 86400000 : 0;
+  const list = sales().filter(s => new Date(s.at).getTime() >= since);
+  const low = config.lowStock || { flowers: 10, bouquets: 2 };
+  const fl = readJson(FLOWERS, []);
+  const flName = id => (fl.find(f => f.id === id) || {}).uz || id;
+
+  const byFlower = {}, byProduct = {};
+  list.forEach(s => {
+    Object.entries(s.recipe || {}).forEach(([id, q]) => { byFlower[id] = (byFlower[id] || 0) + q * s.qty; });
+    const b = byProduct[s.productId] || (byProduct[s.productId] = { id: s.productId, name: s.name, qty: 0, total: 0 });
+    b.qty += s.qty; b.total += s.total;
+  });
+  const ps = products();
+  res.json({
+    days,
+    revenue: list.reduce((a, s) => a + s.total, 0),
+    bouquetsSold: list.reduce((a, s) => a + s.qty, 0),
+    salesCount: list.length,
+    topFlowers: Object.entries(byFlower).map(([id, sold]) => ({ id, name: flName(id), sold, stock: (fl.find(f => f.id === id) || {}).stock ?? null }))
+      .sort((a, b) => b.sold - a.sold).slice(0, 10),
+    topProducts: Object.values(byProduct).sort((a, b) => b.qty - a.qty).slice(0, 10),
+    lowFlowers: fl.filter(f => typeof f.stock === 'number' && f.stock <= low.flowers)
+      .map(f => ({ id: f.id, name: f.uz, stock: f.stock })).sort((a, b) => a.stock - b.stock),
+    untrackedFlowers: fl.filter(f => typeof f.stock !== 'number').length,
+    bouquets: ps.filter(p => typeof p.stock === 'number').map(p => ({ id: p.id, name: p.name, stock: p.stock, low: p.stock <= low.bouquets }))
+      .sort((a, b) => a.stock - b.stock),
+    thresholds: low
+  });
+});
 
 // ---------- Public API ----------
 app.get('/api/config', (req, res) => res.json(config));
@@ -221,7 +315,7 @@ app.get('/api/products', (req, res) => {
   if (tag) list = list.filter(p => p.tags.includes(tag));
   if (flower) list = list.filter(p => p.flowers.includes(flower));
   if (q) list = list.filter(p => p.name.toLowerCase().includes(String(q).toLowerCase()));
-  res.json(list);
+  res.json(list.map(({ recipe, ...p }) => p)); // recipe stays private
 });
 app.get('/api/stats', (req, res) => {
   const all = products();

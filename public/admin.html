@@ -58,19 +58,21 @@ function showLogin(){
   };
 }
 
-let items = [], editing = null, imageData = null, removeImg = false, tab = 'products', me = '';
+let items = [], editing = null, imageData = null, removeImg = false, tab = 'stats', me = '', statDays = 30;
 
 async function showPanel(){
   me = (await fetch('/api/admin/me').then(r=>r.json())).user || '';
   root.innerHTML = `<div class="bar"><a class="logo" href="/"><b>F</b>lowers · admin</a>
    <div class="row2" style="flex:none"><a class="btn light" href="/" target="_blank">Saytni ko'rish</a><button class="btn" id="out">Chiqish</button></div></div>
-   <div class="layout"><div class="panel" id="formBox"></div><div class="panel"><div class="tabs"><button class="chip" data-t="products">Buketlar</button><button class="chip" data-t="orders">Buyurtmalar</button><button class="chip" data-t="flowers">Gullar</button><button class="chip" data-t="cats">Toifalar</button><button class="chip" data-t="admins">Adminlar</button></div><div id="content"></div></div></div>`;
+   <div class="layout"><div class="panel" id="formBox"></div><div class="panel"><div class="tabs"><button class="chip" data-t="stats">Statistika</button><button class="chip" data-t="products">Buketlar</button><button class="chip" data-t="orders">Buyurtmalar</button><button class="chip" data-t="flowers">Gullar</button><button class="chip" data-t="cats">Toifalar</button><button class="chip" data-t="admins">Adminlar</button></div><div id="content"></div></div></div>`;
   document.getElementById('out').onclick = async () => { await api('/api/admin/logout','POST'); showLogin(); };
   root.querySelector('.tabs').onclick = e => { if(e.target.dataset.t){ tab=e.target.dataset.t; render(); } };
   await load();
 }
 async function load(){
-  [items, FL_LIST, CAT_LIST] = await Promise.all(['products','flowers','categories'].map(n=>fetch('/api/'+n).then(r=>r.json())));
+  // admin endpoints return stock and recipe too
+  [items, FL_LIST] = await Promise.all(['products','flowers'].map(n=>api('/api/admin/'+n)));
+  CAT_LIST = await fetch('/api/categories').then(r=>r.json());
   FLOWERS = Object.fromEntries(FL_LIST.map(f=>[f.id,f.uz])); TAGS = Object.fromEntries(CAT_LIST.map(c=>[c.id,c.uz]));
   render();
 }
@@ -80,7 +82,9 @@ function listManager(kind, list, title){
   c.innerHTML = `<p class="small" style="margin-bottom:12px">${list.length} ta. Buketni qo'shayotganda shu ro'yxatdan tanlanadi.</p>
   <form id="lm" style="margin-bottom:16px"><div class="row2"><input name="ru" placeholder="Ruscha"><input name="uz" placeholder="O'zbekcha"><input name="en" placeholder="English"></div>
   <button class="btn dark">${title} qo'shish</button><div id="lmm"></div></form>
-  <table><tr><th>RU</th><th>UZ</th><th>EN</th><th></th></tr>${list.map(x=>`<tr><td>${esc(x.ru)}</td><td>${esc(x.uz)}</td><td>${esc(x.en)}</td><td><button class="btn mini" data-rm="${esc(x.id)}">O'chirish</button></td></tr>`).join('')}</table>`;
+  <table><tr><th>RU</th><th>UZ</th><th>EN</th>${kind==='flowers'?'<th>Qoldiq (dona)</th>':''}<th></th></tr>${list.map(x=>`<tr><td>${esc(x.ru)}</td><td>${esc(x.uz)}</td><td>${esc(x.en)}</td>${kind==='flowers'?`<td style="white-space:nowrap"><input type="number" min="0" class="stk" data-stk="${esc(x.id)}" value="${typeof x.stock==='number'?x.stock:''}" placeholder="—" style="width:84px;margin:0;padding:6px 8px"></td>`:''}<td><button class="btn mini" data-rm="${esc(x.id)}">O'chirish</button></td></tr>`).join('')}</table>
+  ${kind==='flowers'?'<p class="small" style="margin-top:10px">Qoldiqni yozsangiz, shu gul hisobga olinadi: buket sotilganda avtomatik kamayadi. Bo\'sh qoldirsangiz, hisobga olinmaydi.</p>':''}`;
+  c.onchange = async e => { const id=e.target.dataset.stk; if(id!==undefined){ try{ await api('/api/admin/flowers/'+encodeURIComponent(id),'PUT',{stock:e.target.value}); e.target.style.outline='2px solid #4a8a4a'; setTimeout(()=>e.target.style.outline='',700); const f=FL_LIST.find(x=>x.id===id); if(f){ if(e.target.value==='') delete f.stock; else f.stock=Number(e.target.value); } }catch(x){ e.target.style.outline='2px solid #b3261e'; } } };
   document.getElementById('lm').onsubmit = async e => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
@@ -93,11 +97,21 @@ function listManager(kind, list, title){
 function render(){
   document.querySelectorAll('.tabs .chip').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
   renderForm();
-  if(tab==='products'){
-    document.getElementById('content').innerHTML = items.length ? `<table><tr><th></th><th>Nomi</th><th>Narx</th><th></th></tr>${items.map(p=>`<tr>
-     <td>${p.image?`<img src="${esc(p.image)}">`:''}</td><td><b>${esc(p.name)}</b><br><small style="color:var(--muted)">${p.flowers.map(f=>FLOWERS[f]||esc(f)).join(', ')}</small></td>
-     <td>${fmt(p.price)}</td><td style="white-space:nowrap"><button class="btn mini" data-edit="${p.id}">Tahrirlash</button> <button class="btn mini" data-del="${p.id}">O'chirish</button></td></tr>`).join('')}</table>` : `<p style="color:var(--muted)">Hali buket yo'q. Chapdagi formadan birinchi buketni qo'shing.</p>`;
+  if(tab==='stats'){
+    renderStats();
+  } else if(tab==='products'){
+    document.getElementById('content').innerHTML = items.length ? `<table><tr><th></th><th>Nomi</th><th>Narx</th><th>Qoldiq</th><th></th></tr>${items.map(p=>`<tr>
+     <td>${p.image?`<img src="${esc(p.image)}">`:''}</td><td><b>${esc(p.name)}</b><br><small style="color:var(--muted)">${p.flowers.map(f=>(FLOWERS[f]||esc(f))+((p.recipe&&p.recipe[f]>1)?' ×'+p.recipe[f]:'')).join(', ')}</small></td>
+     <td>${fmt(p.price)}</td><td>${typeof p.stock==='number'?`<b style="${p.stock===0?'color:#b3261e':''}">${p.stock}</b> ta`:'—'}</td>
+     <td style="white-space:nowrap"><button class="btn mini dark" data-sell="${p.id}">Sotildi</button> <button class="btn mini" data-edit="${p.id}">Tahrirlash</button> <button class="btn mini" data-del="${p.id}">O'chirish</button></td></tr>`).join('')}</table>
+     <p class="small" style="margin-top:10px">"Sotildi" tugmasi: buket va undagi gullar qoldig'ini kamaytiradi va statistikaga yozadi. Mijoz Telegramda buyurtma berib, sotuv bo'lgach shuni bosing.</p>` : `<p style="color:var(--muted)">Hali buket yo'q. Chapdagi formadan birinchi buketni qo'shing.</p>`;
     document.getElementById('content').onclick = async e => {
+      if(e.target.dataset.sell){
+        const p = items.find(x=>x.id==e.target.dataset.sell);
+        const q = prompt(`"${p.name}" nechta sotildi?`, '1'); if(q===null) return;
+        try { await api('/api/admin/sales','POST',{productId:p.id, qty:Number(q)}); await load(); }
+        catch(x){ alert(x.error==='not_enough_stock' ? `Qoldiq yetarli emas (bor: ${x.have} ta)` : x.error==='bad_qty' ? "Soni noto'g'ri" : 'Xatolik'); }
+      }
       if(e.target.dataset.edit){ editing = items.find(p=>p.id==e.target.dataset.edit); imageData=null; removeImg=false; renderForm(); window.scrollTo({top:0,behavior:'smooth'}); }
       if(e.target.dataset.del){ const p = items.find(x=>x.id==e.target.dataset.del); if(confirm(`"${p.name}" o'chirilsinmi?`)){ await api('/api/admin/products/'+p.id,'DELETE'); if(editing&&editing.id===p.id) editing=null; await load(); } }
     };
@@ -124,15 +138,55 @@ function render(){
   }
 }
 
+async function renderStats(){
+  const c = document.getElementById('content');
+  c.onclick = null; c.onchange = null;
+  c.innerHTML = '<p class="small">Yuklanmoqda…</p>';
+  let s, recent;
+  try { [s, recent] = await Promise.all([api('/api/admin/stats?days='+statDays), api('/api/admin/sales')]); } catch(x){ return; }
+  const bar = (v, max, color) => `<div style="background:var(--line);border-radius:999px;height:8px;min-width:80px;flex:1"><div style="width:${max?Math.max(4,v/max*100):0}%;background:${color||'var(--green)'};height:8px;border-radius:999px"></div></div>`;
+  const maxF = Math.max(0, ...s.topFlowers.map(f=>f.sold)), maxP = Math.max(0, ...s.topProducts.map(p=>p.qty));
+  const periods = [[7,'7 kun'],[30,'30 kun'],[365,'1 yil'],[0,'Hammasi']];
+  c.innerHTML = `
+   <div class="filters">${periods.map(([d,l])=>`<button class="chip ${statDays===d?'on':''}" data-days="${d}">${l}</button>`).join('')}</div>
+   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
+     <div class="panel" style="padding:14px"><small class="small">Daromad</small><div class="serif" style="font-size:26px">${fmt(s.revenue)}</div></div>
+     <div class="panel" style="padding:14px"><small class="small">Sotilgan buketlar</small><div class="serif" style="font-size:26px">${s.bouquetsSold} ta</div></div>
+     <div class="panel" style="padding:14px"><small class="small">Sotuvlar soni</small><div class="serif" style="font-size:26px">${s.salesCount}</div></div>
+   </div>
+
+   <h3 class="serif" style="font-size:22px;margin-bottom:8px">Eng ko'p sotilgan gullar</h3>
+   ${s.topFlowers.length ? s.topFlowers.map(f=>`<div class="row2" style="align-items:center;margin-bottom:6px"><span style="width:150px;flex:none">${esc(f.name)}</span>${bar(f.sold,maxF)}<b style="width:70px;flex:none;text-align:right">${f.sold} dona</b></div>`).join('') : '<p class="small">Hali sotuv yo\'q. Buketlar bo\'limida "Sotildi" ni bosing.</p>'}
+
+   <h3 class="serif" style="font-size:22px;margin:22px 0 8px">Gullar kam qoldi <small class="small">(${s.thresholds.flowers} dona va undan kam)</small></h3>
+   ${s.lowFlowers.length ? `<table>${s.lowFlowers.map(f=>`<tr><td>${esc(f.name)}</td><td style="text-align:right"><b style="color:${f.stock===0?'#b3261e':'#b36b00'}">${f.stock===0?'Tugagan':f.stock+' dona'}</b></td></tr>`).join('')}</table>` : '<p class="small">Kam qolgan gul yo\'q.</p>'}
+   ${s.untrackedFlowers ? `<p class="small" style="margin-top:6px">${s.untrackedFlowers} ta gulning qoldig'i kiritilmagan, ular hisobga olinmaydi (Gullar bo'limida yozing).</p>` : ''}
+
+   <h3 class="serif" style="font-size:22px;margin:22px 0 8px">Buketlar qoldig'i</h3>
+   ${s.bouquets.length ? `<table>${s.bouquets.map(b=>`<tr><td>${esc(b.name)}</td><td style="text-align:right"><b style="color:${b.stock===0?'#b3261e':b.low?'#b36b00':'inherit'}">${b.stock===0?'Tugagan':b.stock+' ta'}</b></td></tr>`).join('')}</table>` : '<p class="small">Buketlarga qoldiq kiritilmagan.</p>'}
+
+   <h3 class="serif" style="font-size:22px;margin:22px 0 8px">Eng ko'p sotilgan buketlar</h3>
+   ${s.topProducts.length ? s.topProducts.map(p=>`<div class="row2" style="align-items:center;margin-bottom:6px"><span style="width:150px;flex:none">${esc(p.name)}</span>${bar(p.qty,maxP,'#b07a2a')}<b style="width:130px;flex:none;text-align:right">${p.qty} ta · ${fmt(p.total)}</b></div>`).join('') : '<p class="small">Hali sotuv yo\'q.</p>'}
+
+   <h3 class="serif" style="font-size:22px;margin:22px 0 8px">Oxirgi sotuvlar</h3>
+   ${recent.length ? `<table>${recent.slice(0,15).map(r=>`<tr><td>${new Date(r.at).toLocaleString()}</td><td>${esc(r.name)} × ${r.qty}</td><td>${fmt(r.total)}</td><td><button class="btn mini" data-undo="${r.id}">Bekor</button></td></tr>`).join('')}</table>` : '<p class="small">Sotuv yo\'q.</p>'}`;
+  c.onclick = async e => {
+    if(e.target.dataset.days!==undefined){ statDays=Number(e.target.dataset.days); renderStats(); }
+    if(e.target.dataset.undo && confirm('Sotuv bekor qilinsinmi? Qoldiq qaytariladi.')){ await api('/api/admin/sales/'+e.target.dataset.undo,'DELETE'); await load(); }
+  };
+}
+
 function renderForm(){
-  const p = editing || {name:'',price:'',tags:[],flowers:[]};
+  const p = editing || {name:'',price:'',tags:[],flowers:[],recipe:{}};
   const box = document.getElementById('formBox');
   box.innerHTML = `<h2 class="serif">${editing?'Buketni tahrirlash':"Yangi buket"}</h2><form id="pf">
    <label class="l">Nomi</label><input name="name" required value="${esc(p.name)}">
    <label class="l">Narxi (so'm)</label><input name="price" type="number" min="1" required value="${esc(p.price)}">
    <label class="l">Rasm</label><img class="preview" id="pv" ${p.image&&!removeImg?`src="${esc(p.image)}" style="display:block"`:''}><input type="file" id="file" accept="image/png,image/jpeg,image/webp">
    ${editing&&p.image?`<label class="l" style="cursor:pointer"><input type="checkbox" id="rmimg" style="width:auto;display:inline;margin:0 6px 0 0">Rasmni olib tashlash</label>`:''}
-   <label class="l">Gullar tarkibi</label><div class="checks">${Object.entries(FLOWERS).map(([k,v])=>`<label><input type="checkbox" name="fl" value="${k}" ${p.flowers.includes(k)?'checked':''}>${v}</label>`).join('')}</div>
+   <label class="l">Nechta buket bor (dona)</label><input name="stock" type="number" min="0" required value="${typeof p.stock==='number'?p.stock:1}">
+   <label class="l">Gullar tarkibi (belgilang va bitta buketga nechta dona kirishini yozing)</label>
+   <div class="checks">${Object.entries(FLOWERS).map(([k,v])=>{ const on=p.flowers.includes(k); const q=(p.recipe&&p.recipe[k])||1; return `<label><input type="checkbox" name="fl" value="${k}" ${on?'checked':''}>${v}<input type="number" class="rq" data-rq="${k}" min="1" max="999" value="${q}" title="Bitta buketga necha dona" style="width:54px;margin:0 0 0 4px;padding:3px 6px;${on?'':'display:none'}"></label>`; }).join('')}</div>
    <label class="l">Toifalar (katalog filtri)</label><div class="checks">${Object.entries(TAGS).map(([k,v])=>`<label><input type="checkbox" name="tg" value="${k}" ${p.tags.includes(k)?'checked':''}>${v}</label>`).join('')}</div>
    <small style="color:var(--muted)">Narx darajasi narxdan avtomatik: 1 mlngacha / 1–2 mln / 2 mln+</small>
    <div class="row2" style="margin-top:12px"><button class="btn dark" type="submit">${editing?'Saqlash':"Qo'shish"}</button>${editing?'<button class="btn" type="button" id="cancel">Bekor</button>':''}</div><div id="fm"></div></form>`;
@@ -141,12 +195,17 @@ function renderForm(){
     if(f.size>5*1024*1024){ document.getElementById('fm').innerHTML='<div class="err">Rasm 5 MB dan kichik bo\'lsin</div>'; e.target.value=''; return; }
     const r = new FileReader(); r.onload = () => { imageData = r.result; const pv=document.getElementById('pv'); pv.src=r.result; pv.style.display='block'; }; r.readAsDataURL(f);
   };
+  // show the quantity box only for checked flowers
+  document.querySelectorAll('input[name=fl]').forEach(cb => cb.onchange = () => { const q = cb.parentElement.querySelector('.rq'); q.style.display = cb.checked ? '' : 'none'; });
   const rm = document.getElementById('rmimg'); if(rm) rm.onchange = e => { removeImg = e.target.checked; };
   const c = document.getElementById('cancel'); if(c) c.onclick = () => { editing=null; imageData=null; removeImg=false; renderForm(); };
   document.getElementById('pf').onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const body = { name: fd.get('name'), price: Number(fd.get('price')), flowers: fd.getAll('fl'), tags: fd.getAll('tg') };
+    const flowers = fd.getAll('fl');
+    const recipe = {};
+    flowers.forEach(id => { const inp = document.querySelector(`[data-rq="${id}"]`); recipe[id] = Math.max(1, Number(inp && inp.value) || 1); });
+    const body = { name: fd.get('name'), price: Number(fd.get('price')), stock: Number(fd.get('stock')), flowers, recipe, tags: fd.getAll('tg') };
     if(imageData) body.image = imageData;
     if(removeImg && !imageData) body.removeImage = true;
     try {

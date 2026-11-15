@@ -1,7 +1,11 @@
 {
   "brand": "Flowers",
   "siteUrl": "",
-  "city": { "ru": "Ташкент", "uz": "Toshkent", "en": "Tashkent" },
+  "city": {
+    "ru": "Ташкент",
+    "uz": "Toshkent",
+    "en": "Tashkent"
+  },
   "telegram": "Hi_uzbekistan",
   "telegramVitrine": "Flowers_Vitrine",
   "whatsapp": "998900000000",
@@ -9,6 +13,19 @@
   "phone": "+998 90 000 00 00",
   "phoneRaw": "+998900000000",
   "email": "info@flowers.uz",
-  "address": { "ru": "Ташкент, ул. Примерная, 1", "uz": "Toshkent, Namuna ko'chasi, 1", "en": "1 Example St, Tashkent" },
-  "deliveryFrom": 50000
+  "address": {
+    "ru": "Ташкент, ул. Примерная, 1",
+    "uz": "Toshkent, Namuna ko'chasi, 1",
+    "en": "1 Example St, Tashkent"
+  },
+  "deliveryFrom": 50000,
+  "lowStock": {
+    "flowers": 10,
+    "bouquets": 2
+  },
+  "theme": {
+    "primary": "#3b4a3a",
+    "bg": "#faf7f2",
+    "ink": "#1a1a1a"
+  }
 }

@@ -39,7 +39,8 @@
   const card = p => `<article class="card">
     <div class="ph">${p.tags.includes('bestseller') ? '<span class="tag">BESTSELLER</span>' : p.tags.includes('vip') ? '<span class="tag">VIP</span>' : ''}<img loading="lazy" src="${p.image || '/img/' + p.id + '.svg'}" alt="${p.name}"></div>
     <div class="in"><h3>${p.name}</h3><div class="fl">${flowersText(p)}</div><div class="pr">${fmt(p.price)} ${T.sum}</div>
-    <a class="btn dark" href="${prodLink(p)}" target="_blank" rel="noopener">${T.order}</a></div></article>`;
+    ${typeof p.stock === 'number' ? `<div class="stock ${p.stock === 0 ? 'out' : p.stock <= 2 ? 'low' : ''}">${p.stock === 0 ? T.sold_out : tr(T.in_stock, { n: p.stock })}</div>` : ''}
+    ${p.stock === 0 ? `<span class="btn dark disabled">${T.sold_out}</span>` : `<a class="btn dark" href="${prodLink(p)}" target="_blank" rel="noopener">${T.order}</a>`}</div></article>`;
 
   const topbar = `<div class="topbar"><div class="wrap"><div class="langs">${['ru', 'uz', 'en'].map(langLink).join('')}</div>
     <div class="soc"><a href="${tg}">Telegram</a><a href="https://wa.me/${cfg.whatsapp}">WhatsApp</a><a href="https://instagram.com/${cfg.instagram}">Instagram</a></div></div></div>

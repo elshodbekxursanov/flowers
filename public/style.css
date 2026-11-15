@@ -121,3 +121,7 @@ footer .logo{color:#fff;font-size:34px;display:block;margin-bottom:10px}
 
 .legal .admin-link{margin-left:auto;opacity:.55;font-size:11px}
 .legal .admin-link:hover{opacity:1}
+.card .stock{font-size:12px;color:var(--green);margin-bottom:6px}
+.card .stock.low{color:#b36b00}
+.card .stock.out{color:#b3261e}
+.btn.disabled{opacity:.45;cursor:not-allowed;pointer-events:none;justify-content:center;width:100%}
