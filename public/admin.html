@@ -2,6 +2,7 @@
 <html lang="uz">
 <head>
 <meta charset="utf-8">
+<meta name="color-scheme" content="light only">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>Admin · Flowers</title>
@@ -61,18 +62,38 @@ function showLogin(){
 let items = [], editing = null, imageData = null, removeImg = false, tab = 'stats', me = '', statDays = 30;
 
 async function showPanel(){
-  me = (await fetch('/api/admin/me').then(r=>r.json())).user || '';
+  const fromHash = location.hash.slice(1);
+  if(['stats','products','orders','flowers','cats','admins'].includes(fromHash)) tab = fromHash; // direct link to a tab
+  me =(await fetch('/api/admin/me').then(r=>r.json())).user || '';
   root.innerHTML = `<div class="bar"><a class="logo" href="/"><b>F</b>lowers · admin</a>
    <div class="row2" style="flex:none"><a class="btn light" href="/" target="_blank">Saytni ko'rish</a><button class="btn" id="out">Chiqish</button></div></div>
+   <div id="alerts"></div>
    <div class="layout"><div class="panel" id="formBox"></div><div class="panel"><div class="tabs"><button class="chip" data-t="stats">Statistika</button><button class="chip" data-t="products">Buketlar</button><button class="chip" data-t="orders">Buyurtmalar</button><button class="chip" data-t="flowers">Gullar</button><button class="chip" data-t="cats">Toifalar</button><button class="chip" data-t="admins">Adminlar</button></div><div id="content"></div></div></div>`;
   document.getElementById('out').onclick = async () => { await api('/api/admin/logout','POST'); showLogin(); };
-  root.querySelector('.tabs').onclick = e => { if(e.target.dataset.t){ tab=e.target.dataset.t; render(); } };
+  root.querySelector('.tabs').onclick = e => { const b = e.target.closest('[data-t]'); if(b){ tab=b.dataset.t; history.replaceState(null,'','#'+tab); render(); } };
   await load();
 }
+// Red banner on every tab: flowers/bouquets that are at or below the low-stock limit
+async function loadAlerts(){
+  const box = document.getElementById('alerts'); if(!box) return;
+  try {
+    const s = await api('/api/admin/stats?days=1');
+    const fl = s.lowFlowers.map(f=>({kind:'Gul', name:f.name, stock:f.stock}));
+    const bq = s.bouquets.filter(b=>b.low).map(b=>({kind:'Buket', name:b.name, stock:b.stock}));
+    const all = [...fl, ...bq];
+    const badge = document.querySelector('[data-t=stats]');
+    if(badge) badge.innerHTML = 'Statistika' + (all.length ? ` <span style="background:#b3261e;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px">${all.length}</span>` : '');
+    box.innerHTML = all.length ? `<div style="background:#fdecea;border:1px solid #f1b5af;color:#8a1f17;border-radius:16px;padding:14px 18px;margin-bottom:18px">
+      <b>⚠ Kam qoldi!</b> <span style="font-size:13px">(${s.thresholds.flowers} ta va undan kam)</span>
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px">${all.map(a=>`<span style="background:#fff;border:1px solid #f1b5af;border-radius:999px;padding:4px 12px;font-size:13px">${a.kind}: <b>${esc(a.name)}</b> — ${a.stock===0?'<b>tugagan</b>':a.stock+' ta qoldi'}</span>`).join('')}</div></div>` : '';
+  } catch(x){}
+}
+
 async function load(){
   // admin endpoints return stock and recipe too
   [items, FL_LIST] = await Promise.all(['products','flowers'].map(n=>api('/api/admin/'+n)));
   CAT_LIST = await fetch('/api/categories').then(r=>r.json());
+  await loadAlerts();
   FLOWERS = Object.fromEntries(FL_LIST.map(f=>[f.id,f.uz])); TAGS = Object.fromEntries(CAT_LIST.map(c=>[c.id,c.uz]));
   render();
 }
@@ -84,7 +105,7 @@ function listManager(kind, list, title){
   <button class="btn dark">${title} qo'shish</button><div id="lmm"></div></form>
   <table><tr><th>RU</th><th>UZ</th><th>EN</th>${kind==='flowers'?'<th>Qoldiq (dona)</th>':''}<th></th></tr>${list.map(x=>`<tr><td>${esc(x.ru)}</td><td>${esc(x.uz)}</td><td>${esc(x.en)}</td>${kind==='flowers'?`<td style="white-space:nowrap"><input type="number" min="0" class="stk" data-stk="${esc(x.id)}" value="${typeof x.stock==='number'?x.stock:''}" placeholder="—" style="width:84px;margin:0;padding:6px 8px"></td>`:''}<td><button class="btn mini" data-rm="${esc(x.id)}">O'chirish</button></td></tr>`).join('')}</table>
   ${kind==='flowers'?'<p class="small" style="margin-top:10px">Qoldiqni yozsangiz, shu gul hisobga olinadi: buket sotilganda avtomatik kamayadi. Bo\'sh qoldirsangiz, hisobga olinmaydi.</p>':''}`;
-  c.onchange = async e => { const id=e.target.dataset.stk; if(id!==undefined){ try{ await api('/api/admin/flowers/'+encodeURIComponent(id),'PUT',{stock:e.target.value}); e.target.style.outline='2px solid #4a8a4a'; setTimeout(()=>e.target.style.outline='',700); const f=FL_LIST.find(x=>x.id===id); if(f){ if(e.target.value==='') delete f.stock; else f.stock=Number(e.target.value); } }catch(x){ e.target.style.outline='2px solid #b3261e'; } } };
+  c.onchange = async e => { const id=e.target.dataset.stk; if(id!==undefined){ try{ await api('/api/admin/flowers/'+encodeURIComponent(id),'PUT',{stock:e.target.value}); e.target.style.outline='2px solid #4a8a4a'; setTimeout(()=>e.target.style.outline='',700); const f=FL_LIST.find(x=>x.id===id); if(f){ if(e.target.value==='') delete f.stock; else f.stock=Number(e.target.value); } loadAlerts(); }catch(x){ e.target.style.outline='2px solid #b3261e'; } } };
   document.getElementById('lm').onsubmit = async e => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
@@ -138,6 +159,30 @@ function render(){
   }
 }
 
+let statMetric = 'qty';
+const compact = n => n >= 1e6 ? (n/1e6).toFixed(n%1e6?1:0).replace(/\.0$/,'')+'M' : n >= 1e3 ? (n/1e3).toFixed(n%1e3?1:0).replace(/\.0$/,'')+'k' : String(n);
+// Bar chart with X/Y axes, gridlines and value labels (inline SVG, no library)
+function svgBars(items, o = {}){
+  const W = 640, H = 270, L = 52, R = 12, T = 18, B = o.slant ? 70 : 44;
+  const max = Math.max(0, ...items.map(i=>i.value));
+  const step = (() => { if(!max) return 1; const raw = max/4, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw/p; return (m<=1?1:m<=2?2:m<=5?5:10)*p; })();
+  const top = step*4 || 4;
+  const cw = (W-L-R)/Math.max(items.length,1), bw = Math.min(46, cw*0.62);
+  const y = v => T + (H-T-B) * (1 - v/top);
+  const every = Math.ceil(items.length/12);
+  const grid = [0,1,2,3,4].map(i => { const v = step*i; return `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" ${i?'stroke-dasharray="3 3"':'stroke="#bbb"'}/><text x="${L-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="#777">${(o.fmt||compact)(v)}</text>`; }).join('');
+  const bars = items.map((it,i) => {
+    const x = L + cw*i + (cw-bw)/2, h = (H-B) - y(it.value);
+    const lab = (i % every === 0) ? (o.slant
+      ? `<text transform="translate(${x+bw/2},${H-B+14}) rotate(-35)" text-anchor="end" font-size="11" fill="#555">${esc(it.label)}</text>`
+      : `<text x="${x+bw/2}" y="${H-B+16}" text-anchor="middle" font-size="11" fill="#555">${esc(it.label)}</text>`) : '';
+    const val = items.length <= 14 && it.value > 0 ? `<text x="${x+bw/2}" y="${y(it.value)-5}" text-anchor="middle" font-size="11" font-weight="600" fill="#333">${(o.fmt||compact)(it.value)}</text>` : '';
+    return `<g><title>${esc(it.label)}: ${it.value}</title><rect x="${x}" y="${y(it.value)}" width="${bw}" height="${Math.max(h,it.value>0?2:0)}" rx="4" fill="${it.color||o.color||'var(--green)'}"/>${val}${lab}</g>`;
+  }).join('');
+  const axisTitle = o.yTitle ? `<text x="4" y="12" font-size="11" fill="#777">${esc(o.yTitle)}</text>` : '';
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${axisTitle}${grid}<line x1="${L}" x2="${L}" y1="${T}" y2="${H-B}" stroke="#bbb"/>${bars}</svg>`;
+}
+
 async function renderStats(){
   const c = document.getElementById('content');
   c.onclick = null; c.onchange = null;
@@ -154,6 +199,13 @@ async function renderStats(){
      <div class="panel" style="padding:14px"><small class="small">Sotilgan buketlar</small><div class="serif" style="font-size:26px">${s.bouquetsSold} ta</div></div>
      <div class="panel" style="padding:14px"><small class="small">Sotuvlar soni</small><div class="serif" style="font-size:26px">${s.salesCount}</div></div>
    </div>
+
+   <div class="row2" style="align-items:center;margin-bottom:6px"><h3 class="serif" style="font-size:22px;flex:1">Sotuvlar grafigi</h3>
+     <button class="chip ${statMetric==='qty'?'on':''}" data-metric="qty" style="flex:none">Buketlar soni</button><button class="chip ${statMetric==='revenue'?'on':''}" data-metric="revenue" style="flex:none">Daromad</button></div>
+   <div style="margin-bottom:22px">${svgBars(s.series.map(b=>({label: s.daily ? b.key.slice(8)+'.'+b.key.slice(5,7) : b.key.slice(5,7)+'.'+b.key.slice(2,4), value: statMetric==='qty' ? b.qty : b.revenue})), {yTitle: statMetric==='qty'?'dona':"so'm", slant: s.series.length>14})}
+     <div class="small" style="text-align:center">${s.daily ? 'Kunlar bo\'yicha' : 'Oylar bo\'yicha'}</div></div>
+
+   ${s.topFlowers.length ? `<h3 class="serif" style="font-size:22px;margin-bottom:8px">Gullar grafigi <small class="small">(eng ko'p sotilgan)</small></h3><div style="margin-bottom:22px">${svgBars(s.topFlowers.map(f=>({label:f.name, value:f.sold})), {color:'#b07a2a', yTitle:'dona', slant:true})}</div>` : ''}
 
    <h3 class="serif" style="font-size:22px;margin-bottom:8px">Eng ko'p sotilgan gullar</h3>
    ${s.topFlowers.length ? s.topFlowers.map(f=>`<div class="row2" style="align-items:center;margin-bottom:6px"><span style="width:150px;flex:none">${esc(f.name)}</span>${bar(f.sold,maxF)}<b style="width:70px;flex:none;text-align:right">${f.sold} dona</b></div>`).join('') : '<p class="small">Hali sotuv yo\'q. Buketlar bo\'limida "Sotildi" ni bosing.</p>'}
@@ -172,6 +224,7 @@ async function renderStats(){
    ${recent.length ? `<table>${recent.slice(0,15).map(r=>`<tr><td>${new Date(r.at).toLocaleString()}</td><td>${esc(r.name)} × ${r.qty}</td><td>${fmt(r.total)}</td><td><button class="btn mini" data-undo="${r.id}">Bekor</button></td></tr>`).join('')}</table>` : '<p class="small">Sotuv yo\'q.</p>'}`;
   c.onclick = async e => {
     if(e.target.dataset.days!==undefined){ statDays=Number(e.target.dataset.days); renderStats(); }
+    if(e.target.dataset.metric){ statMetric=e.target.dataset.metric; renderStats(); }
     if(e.target.dataset.undo && confirm('Sotuv bekor qilinsinmi? Qoldiq qaytariladi.')){ await api('/api/admin/sales/'+e.target.dataset.undo,'DELETE'); await load(); }
   };
 }

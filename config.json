@@ -10,8 +10,8 @@
   "telegramVitrine": "Flowers_Vitrine",
   "whatsapp": "998900000000",
   "instagram": "flowers_uz",
-  "phone": "+998 90 000 00 00",
-  "phoneRaw": "+998900000000",
+  "phone": "+998 95 085 54 41",
+  "phoneRaw": "+998950855441",
   "email": "info@flowers.uz",
   "address": {
     "ru": "Ташкент, ул. Примерная, 1",
@@ -20,7 +20,7 @@
   },
   "deliveryFrom": 50000,
   "lowStock": {
-    "flowers": 10,
+    "flowers": 2,
     "bouquets": 2
   },
   "theme": {

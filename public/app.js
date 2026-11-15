@@ -18,6 +18,10 @@
 
   const fmt = n => n.toLocaleString('en-US').replace(/,/g, ' ');
   const tr = (s, o = {}) => s.replace(/\{(\w+)\}/g, (_, k) => o[k] ?? '');
+  // Russian needs 3 word forms (1 букет, 2 букета, 5 букетов); English 2
+  const ruForm = (n, a, b, c) => { const m = n % 100, d = n % 10; return m >= 11 && m <= 14 ? c : d === 1 ? a : d >= 2 && d <= 4 ? b : c; };
+  const bouquetWord = n => lang === 'ru' ? ruForm(n, 'букет', 'букета', 'букетов') : n === 1 ? 'bouquet' : 'bouquets';
+  const itemWord = n => lang === 'ru' ? ruForm(n, 'ПОЗИЦИЯ', 'ПОЗИЦИИ', 'ПОЗИЦИЙ') : lang === 'en' ? (n === 1 ? 'ITEM' : 'ITEMS') : T.positions;
   const flowerName = id => { const f = flowerList.find(x => x.id === id); return f ? f[lang] : ''; };
   const flowersText = p => p.flowers.map(flowerName).filter(Boolean).join(', ');
   const tg = `https://t.me/${cfg.telegram}`;
@@ -62,7 +66,7 @@
     const has = products.length > 0;
     const heroImg = (products.find(p => p.image) || {}).image;
     const tierImg = k => { const p = products.find(x => x.tier === k); return p ? (p.image || '/img/' + p.id + '.svg') : ''; };
-    const tier = k => stats.tiers[k].count ? `<a class="tier" href="${prefix}/catalog?tier=${k}"><img src="${tierImg(k)}" alt=""><div><small>${T[k + '_k']}</small><h3>${T[k + '_n']}</h3><p>${T.from} ${fmt(stats.tiers[k].from)} · ${stats.tiers[k].count} ${T.positions}</p></div></a>` : '';
+    const tier = k => stats.tiers[k].count ? `<a class="tier" href="${prefix}/catalog?tier=${k}"><img src="${tierImg(k)}" alt=""><div><small>${T[k + '_k']}</small><h3>${T[k + '_n']}</h3><p>${T.from} ${fmt(stats.tiers[k].from)} · ${stats.tiers[k].count} ${itemWord(stats.tiers[k].count)}</p></div></a>` : '';
     const P = k => stats.tiers[k].from === null ? '—' : fmt(stats.tiers[k].from);
     const faq = T.faq.map(([q, a]) => `<details><summary>${q}</summary><p>${tr(a, { p1: P('b1'), p2: P('b2'), p3: P('b3'), tg: cfg.telegram, phone: cfg.phone })}</p></details>`).join('');
     const revs = reviews.length ? `<div class="revs">${reviews.map(r => `<div class="rv"><div class="st">★★★★★</div><div class="nm">${r.n}</div><small>${r.src} · ${r.d}</small><p>${r.t}</p></div>`).join('')}</div>` : `<div class="rev">${T.rev_p}</div>`;
@@ -70,7 +74,7 @@
       <span class="pill">${T.badge}</span>
       <h1 class="serif">${T.h1a}<br><em>${T.h1b}</em></h1><p class="lead">${T.lead}</p>
       <div class="cta"><a class="btn dark" href="${tg}">${T.order}</a><a class="btn light" href="tel:${cfg.phoneRaw}">${T.call}</a></div>
-      <p class="small">${T.manager}</p>${has ? `<div style="margin-top:14px"><a class="btn light" href="${prefix}/catalog">${tr(T.catalog_btn, { n: stats.total })}</a></div>` : ''}</div>
+      <p class="small">${T.manager}</p>${has ? `<div style="margin-top:14px"><a class="btn light" href="${prefix}/catalog">${tr(T.catalog_btn, { n: stats.total, w: bouquetWord(stats.total) })}</a></div>` : ''}</div>
       ${heroImg ? `<div class="hero-img"><img src="${heroImg}" alt=""></div>` : ''}</div>
       <div class="wrap trust"><div>${T.t1}</div><div>${T.t2}</div><div>${T.t3}</div><div>${T.t4}</div></div></section>
     ${has ? `<section><div class="wrap"><div class="eyebrow">${T.start}</div><h2 class="serif">${T.start_h}<br><em>${T.start_h2}</em></h2>

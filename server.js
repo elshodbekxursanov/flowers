@@ -289,8 +289,27 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
     b.qty += s.qty; b.total += s.total;
   });
   const ps = products();
+
+  // Time series for the chart: daily buckets for up to 31 days, otherwise monthly
+  const pad = n => String(n).padStart(2, '0');
+  const daily = days > 0 && days <= 31;
+  const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}${daily ? '-' + pad(d.getDate()) : ''}`;
+  const now = new Date();
+  let start;
+  if (daily) start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
+  else {
+    const months = days > 0 ? Math.ceil(days / 30) : 6;
+    start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+    if (!days && list.length) { const first = new Date(Math.min(...list.map(s => new Date(s.at).getTime()))); if (first < start) start = new Date(first.getFullYear(), first.getMonth(), 1); }
+  }
+  const series = [];
+  for (let d = new Date(start); d <= now; daily ? d.setDate(d.getDate() + 1) : d.setMonth(d.getMonth() + 1)) {
+    series.push({ key: keyOf(d), qty: 0, revenue: 0 });
+  }
+  list.forEach(s => { const b = series.find(x => x.key === keyOf(new Date(s.at))); if (b) { b.qty += s.qty; b.revenue += s.total; } });
+
   res.json({
-    days,
+    days, series, daily,
     revenue: list.reduce((a, s) => a + s.total, 0),
     bouquetsSold: list.reduce((a, s) => a + s.qty, 0),
     salesCount: list.length,
